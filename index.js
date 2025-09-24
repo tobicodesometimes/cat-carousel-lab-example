@@ -1,9 +1,5 @@
-import {
-    appendCarousel,
-    clear,
-    createCarouselItem,
-    start,
-} from "./Carousel.js";
+import { appendCarousel, clear, createCarouselItem, start } from "./Carousel.js";
+
 
 // import axios from "axios";
 
@@ -17,8 +13,12 @@ const progressBar = document.getElementById("progressBar");
 const getFavouritesBtn = document.getElementById("getFavouritesBtn");
 
 // Step 0: Store your API key here for reference and easy access.
-const API_KEY =
-    "live_oYy2dWvJzmU1YEKnTOcf707nAjtTTrqmWZNMdcTmbFZDH1CMBDOsdhVYbxMsXcsX";
+const API_KEY = "live_oYy2dWvJzmU1YEKnTOcf707nAjtTTrqmWZNMdcTmbFZDH1CMBDOsdhVYbxMsXcsX";
+
+const headers = new Headers({
+    "Content-Type": "application/json",
+    "x-api-key": API_KEY
+});
 
 /**
  * 1. Create an async function "initialLoad" that does the following:
@@ -29,51 +29,40 @@ const API_KEY =
  * This function should execute immediately.
  */
 
-const headers = new Headers({
-    "Content-Type": "application/json",
-    "x-api-key": API_KEY,
-});
-
 const requestOptions = {
-    method: "GET",
+    method: 'GET',
     headers: headers,
-    redirect: "follow",
+    redirect: 'follow'
 };
-
-// .then(response => response.text())
-// .then(result => console.log(result))
-// .catch(error => console.log('error', error));
-
-initialLoad();
 
 async function initialLoad() {
     try {
-        const response = await fetch(
-            "https://api.thecatapi.com/v1/images/search?size=med&mime_types=jpg&format=json&has_breeds=true&order=RANDOM&page=0&limit=5",
-            requestOptions
-        );
-
-        if (!response.ok) {
+        const response = await fetch("https://api.thecatapi.com/v1/breeds/", requestOptions);
+        if (!response.ok){
             throw `Response status: ${response.status}`;
         }
-        const result = await response.json();
-        console.log(result);
 
-        await result.forEach((element) => {
-            const option = breedSelect.appendChild(
-                document.createElement("option")
-            );
-            option.value = element.breeds[0].id;
-            option.textContent = element.breeds[0].name;
+        let catBreeds = await response.json();
+
+        // Only include breeds that have an image
+        catBreeds = catBreeds.filter(entry => entry.image?.url != null);
+
+        // Create the options and append them to breedSelect
+        const frag = new DocumentFragment();
+
+        catBreeds.forEach(catBreed => {
+            frag.appendChild(Object.assign(document.createElement("option"), {value: catBreed.id, textContent: catBreed.name}));
         });
+        breedSelect.appendChild(frag);
 
-        carouselChange(breedSelect.value);
-
-        console.log(breedSelect);
+        updateCarousel(breedSelect.value);
     } catch (error) {
-        console.log(error);
+        console.error(error);
     }
 }
+
+initialLoad();
+
 /**
  * 2. Create an event handler for breedSelect that does the following:
  * - Retrieve information on the selected breed from the cat API using fetch().
@@ -89,40 +78,66 @@ async function initialLoad() {
  * - Add a call to this function to the end of your initialLoad function above to create the initial carousel.
  */
 
-breedSelect.addEventListener("change", (e) => {
-    if (e.target === e.currentTarget) {
-        carouselChange(e.target.value);
+breedSelect.addEventListener("change", async (e) => {
+    if (e.target === e.currentTarget){
+        updateCarousel(e.target.value);
     }
 });
 
-async function carouselChange(id) {
+async function updateCarousel(id) {
     try {
-        const response = await fetch(
-            `https://api.thecatapi.com/v1/images/search?breed_ids=${id}&limit=10`,
-            requestOptions
-        );
-
-        if (!response.ok) {
+        const response = await fetch(`https://api.thecatapi.com/v1/images/search?breed_ids=${id}&limit=10&format=json`, requestOptions);
+        if (!response.ok){
             throw `Response status: ${response.status}`;
         }
         const result = await response.json();
-        console.log(result);
-        clear();
-        result.forEach((element) => {
-            appendCarousel(
-                createCarouselItem(
-                    element.url,
-                    element.breeds[0].name,
-                    element.id
-                )
-            );
-        });
+
+        clear(); // Clear carousel before adding entries.
+
+        result.forEach(catResult => {
+            appendCarousel(createCarouselItem(catResult.url, `Picture of ${catResult.breeds[0].name}`, catResult.id));
+        })
 
         start();
 
-        console.log(breedSelect);
+        showInfo(result[0].breeds[0]); // Only need to choose the breeds array's first object from the first result since these should all be identical (same breed, same info)
+
     } catch (error) {
-        console.log(error);
+        console.error(error);
+    }
+
+    function clearInfo() {
+        while (infoDump.firstElementChild){
+            infoDump.removeChild(infoDump.firstElementChild);
+        }
+    }
+
+    function showInfo(breedInfo) {
+        clearInfo();
+        const frag = new DocumentFragment();
+        // h1 with cat's name
+        frag.appendChild(Object.assign(document.createElement("h1"), {id: "info-header", textContent: `Information on the ${breedInfo.name}`}));
+
+        // p element with cat's origin
+        frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-origin", innerHTML: `<strong>Origin:</strong> ${breedInfo.origin}`}));
+
+        // p element with cat's weight (pounds)
+        frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-weight", innerHTML: `<strong>Weight:</strong> ${breedInfo.weight.imperial} lbs`}));
+
+        // p element with cat's life span (years)
+        frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-desc", innerHTML: `<strong>Life Span:</strong> ${breedInfo.life_span} years`}));
+
+        // p element with cat's temperament (listed as traits here)
+        frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-traits", innerHTML: `<strong>Traits:</strong> ${breedInfo.temperament}`}));
+
+        // p element with cat description
+        frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-desc", textContent: breedInfo.description}));
+
+        // p element with link to more info (wikipedia link)
+        frag.appendChild(Object.assign(document.createElement("p"), {id: "wikipedia", innerHTML: `Click <a id="link" href=${breedInfo.wikipedia_url} target="_blank">here</a> to learn more about the ${breedInfo.name} cat.`}));
+        
+        // Append frag to infoDump
+        infoDump.appendChild(frag);
     }
 }
 
