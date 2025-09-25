@@ -278,7 +278,7 @@ export async function favourite(imgId) {
   if (existing) {
     await axios.delete(`/favourites/${existing.id}`);
   } else {
-    await axios.post("/favourites", { image_id: imgId /*, sub_id: "tobi" */ });
+    await axios.post("/favourites", { image_id: imgId });
   }
 }
 
@@ -298,19 +298,6 @@ getFavouritesBtn.addEventListener("click", async () => {
   });
   createCarousel(data, "favourites");
 });
-
-async function getFavResults() {
-  const getFavResponse = await axios.get("/favourites");
-  return getFavResponse;
-}
-
-async function getFavourites(e) {
-  if (e.target === e.currentTarget) {
-    const results = await getFavResults();
-    clearInfo();
-    createCarousel(results.data, "favourites");
-  }
-}
 
 /**
  * 10. Test your site, thoroughly!
