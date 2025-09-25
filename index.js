@@ -1,5 +1,9 @@
-import { appendCarousel, clear, createCarouselItem, start } from "./Carousel.js";
-
+import {
+  appendCarousel,
+  clear,
+  createCarouselItem,
+  start,
+} from "./Carousel.js";
 
 // import axios from "axios";
 
@@ -13,11 +17,35 @@ const progressBar = document.getElementById("progressBar");
 const getFavouritesBtn = document.getElementById("getFavouritesBtn");
 
 // Step 0: Store your API key here for reference and easy access.
-const API_KEY = "live_oYy2dWvJzmU1YEKnTOcf707nAjtTTrqmWZNMdcTmbFZDH1CMBDOsdhVYbxMsXcsX";
+const API_KEY =
+  "live_oYy2dWvJzmU1YEKnTOcf707nAjtTTrqmWZNMdcTmbFZDH1CMBDOsdhVYbxMsXcsX";
 
-const headers = new Headers({
-    "Content-Type": "application/json",
-    "x-api-key": API_KEY
+axios.defaults.baseURL = "https://api.thecatapi.com/v1";
+axios.defaults.headers.common["x-api-key"] = API_KEY;
+axios.defaults.onDownloadProgress = function (progressEvent) {
+  updateProgress(progressEvent);
+};
+axios.interceptors.request.use((request) => {
+  request.metadata = request.metadata || {};
+  request.metadata.start_time = new Date();
+  progressBar.style.width = "0%";
+  console.log(
+    `Request started at: ${request.metadata.start_time.toLocaleTimeString(
+      "en-US"
+    )}`
+  );
+  document.body.style.cursor = "progress";
+  return request;
+});
+
+axios.interceptors.response.use(function onFullfilled(response) {
+  document.body.style.cursor = "default";
+  progressBar.style.width = "100%";
+  // Calculate how long the request took
+  const timeElapsed =
+    new Date().getTime() - response.config.metadata.start_time.getTime();
+  console.log(`Request took ${timeElapsed} ms.`);
+  return response;
 });
 
 /**
@@ -29,39 +57,18 @@ const headers = new Headers({
  * This function should execute immediately.
  */
 
-const requestOptions = {
-    method: 'GET',
-    headers: headers,
-    redirect: 'follow'
-};
-
-async function initialLoad() {
-    try {
-        const response = await fetch("https://api.thecatapi.com/v1/breeds/", requestOptions);
-        if (!response.ok){
-            throw `Response status: ${response.status}`;
-        }
-
-        let catBreeds = await response.json();
-
-        // Only include breeds that have an image
-        catBreeds = catBreeds.filter(entry => entry.image?.url != null);
-
-        // Create the options and append them to breedSelect
-        const frag = new DocumentFragment();
-
-        catBreeds.forEach(catBreed => {
-            frag.appendChild(Object.assign(document.createElement("option"), {value: catBreed.id, textContent: catBreed.name}));
-        });
-        breedSelect.appendChild(frag);
-
-        updateCarousel(breedSelect.value);
-    } catch (error) {
-        console.error(error);
-    }
-}
-
-initialLoad();
+// initialLoad()
+const { data: breeds } = await axios.get("/breeds");
+const frag = document.createDocumentFragment();
+breeds.forEach((b) =>
+  frag.appendChild(
+    Object.assign(document.createElement("option"), {
+      value: b.id,
+      textContent: b.name,
+    })
+  )
+);
+breedSelect.appendChild(frag);
 
 /**
  * 2. Create an event handler for breedSelect that does the following:
@@ -78,67 +85,135 @@ initialLoad();
  * - Add a call to this function to the end of your initialLoad function above to create the initial carousel.
  */
 
-breedSelect.addEventListener("change", async (e) => {
-    if (e.target === e.currentTarget){
-        updateCarousel(e.target.value);
-    }
+function createCarousel(data, type) {
+  clear();
+  clearInfo();
+  if (!Array.isArray(data) || data.length === 0) {
+    infoDump.appendChild(
+      Object.assign(document.createElement("h1"), {
+        textContent:
+          type === "favourites"
+            ? "No favourites yet."
+            : "No images found for this breed.",
+      })
+    );
+    return;
+  }
+  if (type === "breed") {
+    data.forEach((r) =>
+      appendCarousel(
+        createCarouselItem(
+          r.url,
+          `Picture of ${r.breeds?.[0]?.name ?? "Cat"}`,
+          r.id
+        )
+      )
+    );
+  } else if (type === "favourites") {
+    data.forEach((r) =>
+      appendCarousel(
+        createCarouselItem(r.image.url, "Favourite Cat Picture", r.image_id)
+      )
+    );
+    infoDump.appendChild(
+      Object.assign(document.createElement("h1"), {
+        textContent: "Viewing Favourite Cat Pics!",
+      })
+    );
+  }
+  start();
+}
+
+// Add event listener to breedSelect
+breedSelect.addEventListener("change", (e) => {
+  if (e.target === e.currentTarget) {
+    updateCarousel(e.target.value);
+  }
 });
 
+// Removes infoDump's children
+function clearInfo() {
+  while (infoDump.firstElementChild) {
+    infoDump.removeChild(infoDump.firstElementChild);
+  }
+}
+
+// Update the carousel based on the id of the selector
 async function updateCarousel(id) {
-    try {
-        const response = await fetch(`https://api.thecatapi.com/v1/images/search?breed_ids=${id}&limit=10&format=json`, requestOptions);
-        if (!response.ok){
-            throw `Response status: ${response.status}`;
-        }
-        const result = await response.json();
+  try {
+    const { data: imgs } = await axios.get("/images/search", {
+      params: { breed_ids: id, limit: 10, include_breeds: 1 },
+      onDownloadProgress: updateProgress,
+    });
+    createCarousel(imgs, "breed");
+    const info = imgs[0]?.breeds?.[0] || {};
+    showInfo(info);
+  } catch (e) {
+    console.error(e);
+  }
 
-        clear(); // Clear carousel before adding entries.
+  function showInfo(breedInfo) {
+    clearInfo();
+    const frag = new DocumentFragment();
+    // h1 with cat's name
+    frag.appendChild(
+      Object.assign(document.createElement("h1"), {
+        id: "info-header",
+        textContent: `Information on the ${breedInfo.name}`,
+      })
+    );
 
-        result.forEach(catResult => {
-            appendCarousel(createCarouselItem(catResult.url, `Picture of ${catResult.breeds[0].name}`, catResult.id));
-        })
+    // p element with cat's origin
+    frag.appendChild(
+      Object.assign(document.createElement("p"), {
+        id: "cat-origin",
+        innerHTML: `<strong>Origin:</strong> ${breedInfo.origin}`,
+      })
+    );
 
-        start();
+    // p element with cat's weight (pounds)
+    frag.appendChild(
+      Object.assign(document.createElement("p"), {
+        id: "cat-weight",
+        innerHTML: `<strong>Weight:</strong> ${breedInfo.weight.imperial} lbs`,
+      })
+    );
 
-        showInfo(result[0].breeds[0]); // Only need to choose the breeds array's first object from the first result since these should all be identical (same breed, same info)
+    // p element with cat's life span (years)
+    frag.appendChild(
+      Object.assign(document.createElement("p"), {
+        id: "cat-desc",
+        innerHTML: `<strong>Life Span:</strong> ${breedInfo.life_span} years`,
+      })
+    );
 
-    } catch (error) {
-        console.error(error);
-    }
+    // p element with cat's temperament (listed as traits here)
+    frag.appendChild(
+      Object.assign(document.createElement("p"), {
+        id: "cat-traits",
+        innerHTML: `<strong>Traits:</strong> ${breedInfo.temperament}`,
+      })
+    );
 
-    function clearInfo() {
-        while (infoDump.firstElementChild){
-            infoDump.removeChild(infoDump.firstElementChild);
-        }
-    }
+    // p element with cat description
+    frag.appendChild(
+      Object.assign(document.createElement("p"), {
+        id: "cat-desc",
+        textContent: breedInfo.description,
+      })
+    );
 
-    function showInfo(breedInfo) {
-        clearInfo();
-        const frag = new DocumentFragment();
-        // h1 with cat's name
-        frag.appendChild(Object.assign(document.createElement("h1"), {id: "info-header", textContent: `Information on the ${breedInfo.name}`}));
+    // p element with link to more info (wikipedia link)
+    frag.appendChild(
+      Object.assign(document.createElement("p"), {
+        id: "wikipedia",
+        innerHTML: `Click <a id="link" href=${breedInfo.wikipedia_url} target="_blank">here</a> to learn more about the ${breedInfo.name} cat.`,
+      })
+    );
 
-        // p element with cat's origin
-        frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-origin", innerHTML: `<strong>Origin:</strong> ${breedInfo.origin}`}));
-
-        // p element with cat's weight (pounds)
-        frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-weight", innerHTML: `<strong>Weight:</strong> ${breedInfo.weight.imperial} lbs`}));
-
-        // p element with cat's life span (years)
-        frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-desc", innerHTML: `<strong>Life Span:</strong> ${breedInfo.life_span} years`}));
-
-        // p element with cat's temperament (listed as traits here)
-        frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-traits", innerHTML: `<strong>Traits:</strong> ${breedInfo.temperament}`}));
-
-        // p element with cat description
-        frag.appendChild(Object.assign(document.createElement("p"), {id: "cat-desc", textContent: breedInfo.description}));
-
-        // p element with link to more info (wikipedia link)
-        frag.appendChild(Object.assign(document.createElement("p"), {id: "wikipedia", innerHTML: `Click <a id="link" href=${breedInfo.wikipedia_url} target="_blank">here</a> to learn more about the ${breedInfo.name} cat.`}));
-        
-        // Append frag to infoDump
-        infoDump.appendChild(frag);
-    }
+    // Append frag to infoDump
+    infoDump.appendChild(frag);
+  }
 }
 
 /**
@@ -176,6 +251,10 @@ async function updateCarousel(id) {
  *   with for future projects.
  */
 
+async function updateProgress(progress_event) {
+  console.log("ProgressEvent obj:\n", progress_event);
+}
+
 /**
  * 7. As a final element of progress indication, add the following to your axios interceptors:
  * - In your request interceptor, set the body element's cursor style to "progress."
@@ -192,8 +271,15 @@ async function updateCarousel(id) {
  *   you delete that favourite using the API, giving this function "toggle" functionality.
  * - You can call this function by clicking on the heart at the top right of any image.
  */
+
 export async function favourite(imgId) {
-    // your code here
+  const { data: favs } = await axios.get("/favourites");
+  const existing = favs.find((f) => f.image_id === imgId);
+  if (existing) {
+    await axios.delete(`/favourites/${existing.id}`);
+  } else {
+    await axios.post("/favourites", { image_id: imgId /*, sub_id: "tobi" */ });
+  }
 }
 
 /**
@@ -205,6 +291,26 @@ export async function favourite(imgId) {
  *    If that isn't in its own function, maybe it should be so you don't have to
  *    repeat yourself in this section.
  */
+
+getFavouritesBtn.addEventListener("click", async () => {
+  const { data } = await axios.get("/favourites", {
+    onDownloadProgress: updateProgress,
+  });
+  createCarousel(data, "favourites");
+});
+
+async function getFavResults() {
+  const getFavResponse = await axios.get("/favourites");
+  return getFavResponse;
+}
+
+async function getFavourites(e) {
+  if (e.target === e.currentTarget) {
+    const results = await getFavResults();
+    clearInfo();
+    createCarousel(results.data, "favourites");
+  }
+}
 
 /**
  * 10. Test your site, thoroughly!
